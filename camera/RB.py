@@ -91,3 +91,18 @@ def calcPickingMarkersRB(obstacles):
             pickingStationsRB[station.station_id-1] = (station.distance, station.bearing[0])
 
     return pickingStationsRB
+
+'''
+Target is name of desired object
+'''
+
+def calcObjectRB(obstacles, target):
+    objectTypes = ["Cube", "Soccer Ball", "Block", "Mug", "Oil Bottle", "Bowl"]
+
+    for obstacle in obstacles:
+        if obstacle.type_name == target:
+            objectRB = (obstacle.distance, obstacle.bearing[0])
+
+    return objectRB
+
+    

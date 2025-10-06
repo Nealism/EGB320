@@ -176,8 +176,7 @@ if __name__ == "__main__":
                             board.motor_stop(board.ALL)
                             robotMode = RobotMode.CHECK_ROW
                     else:
-                       # TODO: implement dist calc and drive towards it
-                       pass
+                       drive_distance(board, paDistance - RAMP_ARRIVE_DIST, 100)
                 else:
                    turnSearch(50, board)
 
@@ -187,8 +186,7 @@ if __name__ == "__main__":
                     aligned = steerToBearing(row2B)
                     if aligned:
                         if shelfMarkersRB[1][0] > STATION_ROW_DIST:
-                            #TODO: implement dist calc and drive towards
-                            pass
+                            drive_distance(board, shelfMarkersRB[1][0] - STATION_ROW_DIST, 100)
                         else:
                            board.motor_stop(board.ALL)
                            turnAngle_encoder(board, 90, 50)
@@ -209,8 +207,7 @@ if __name__ == "__main__":
                     if pickingStationDistance > STATION_ARRIVE_DIST:
                         aligned = steerToBearing(pickingStationBearing)
                         if aligned: 
-                            pass
-                            #TODO: implement dist calc and drive towards
+                            drive_distance(board, pickingStationDistance - STATION_ARRIVE_DIST, 100)
                     else:
                        board.motor_stop(board.ALL)
                        robotMode = RobotMode.COLLECT_ITEM
@@ -231,8 +228,7 @@ if __name__ == "__main__":
                     pickingStationBearing = pickingStation[1]
                     pickingStationDistance = pickingStation[0]
                     if pickingStationDistance < STATION_DEPART_DIST:
-                        pass
-                        # TODO: implement calc dist and drive away
+                        drive_distance(board, STATION_ARRIVE_DIST - pickingStationDistance, 100)
                     else:
                        board.motor_stop(board.ALL)
                        robotMode = RobotMode.SEARCH_SHELF
@@ -302,8 +298,7 @@ if __name__ == "__main__":
                         bayDistance = (1/2)*BAY_GAP + distIndex * BAY_GAP
                     if aligned:
                         if shelfMarkersRB[TARGET_ROW_INDEX][0] > bayDistance:
-                            pass
-                            #TODO: calc dist and implement driving towards it
+                            drive_distance(board, shelfMarkersRB[TARGET_ROW_INDEX][0] - bayDistance, 100)
                         else:
                             board.motor_stop(board.ALL)
                             robotMode = RobotMode.DROP_ITEM
@@ -347,7 +342,7 @@ if __name__ == "__main__":
                     shelfD = shelfMarkersRB[TARGET_ROW_INDEX][0]
                     if shelfD < 5*STATION_ROW_DIST/8:
                         sleep(0.1)
-                        #TODO: calc dist and implement drive
+                        drive_distance(board, 5*STATION_ROW_DIST/8 - shelfD, 100)
                     else:
                         board.motor_stop(board.ALL)
                         robotMode = RobotMode.FIND_ORIGIN
