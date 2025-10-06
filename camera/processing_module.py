@@ -14,14 +14,16 @@ class ColourProfile:
 
 # --- Module-level configuration ---
 # colour profiles
-GREEN = ColourProfile("Green", 35, 92, 55, 255, 20, 255, (0, 255, 0))  # Probably scale up Hmin
+GREEN = ColourProfile("Green", 45, 92, 55, 255, 20, 255, (0, 255, 0))  # Probably scale up Hmin
 ORANGE = ColourProfile("Orange", 0, 21, 100, 255, 50, 255, (0, 140, 255)) 
-BLUE = ColourProfile("Blue", 100, 150, 100, 255, 20, 255, (255, 0, 0))
-BLACK = ColourProfile("Black", 0, 255, 0, 255, 0, 75, (0, 0, 255))
+BLUE = ColourProfile("Blue", 100, 150, 160, 255, 20, 255, (255, 0, 0))
+BLACK = ColourProfile("Black", 0, 180, 0, 200, 0, 80, (0, 0, 255))
 LOWER_RED = ColourProfile("Red", 0, 0, 120, 255, 120, 255, (0, 0, 255))
 UPPER_RED = ColourProfile("Red", 165, 179, 120, 255, 120, 255, (0, 0, 255))
 WHITE = ColourProfile("White", 0, 255, 0, 255, 100, 255, (255, 255, 255))
-COLOURS = [ORANGE, GREEN, BLUE, LOWER_RED, UPPER_RED, BLACK, WHITE]
+WALL = ColourProfile("Wall",32,255,0,200,175,255,(255,255,255)) 
+YELLOW = ColourProfile("Yellow",25,35,100,255,0,255,(0,255,255))
+COLOURS = [ORANGE, GREEN,LOWER_RED, UPPER_RED, BLACK, YELLOW, BLUE, WALL]
 
 # Object type constants
 TYPE_ROW_MARKER = "Row Marker"
@@ -32,6 +34,10 @@ TYPE_BLOCK = "Block"
 TYPE_MUG = "Mug"
 TYPE_OIL = "Oil Bottle"
 TYPE_BOWL = "Bowl"
+TYPE_YELLOW_STATION = "Yellow Station"
+TYPE_OBSTACLE_FLOOR = "Floor Obstacle"
+TYPE_OBSTACLE_TALL = "Tall Obstacle"
+TYPE_SHELF = "Shelf"
 
 # Object detection parameters
 CIRCULARITY_THRESHOLD = 0.81  # For detecting circular objects
@@ -47,7 +53,10 @@ REAL_SIZES = {
     TYPE_BLOCK: 0.065,        # Rectangular block 
     TYPE_MUG: 0.048,         # Mug with handle
     TYPE_OIL: 0.068,          # Oil bottle height
-    TYPE_BOWL: 0.04         # Bowl diameter
+    TYPE_BOWL: 0.04,         # Bowl diameter
+    TYPE_YELLOW_STATION: 0.46,
+    TYPE_OBSTACLE_FLOOR: 0.35,
+    TYPE_OBSTACLE_TALL: 0.05
 }
 
 # Processing parameters
@@ -58,7 +67,8 @@ FOV_WIDTH_RAD = np.deg2rad(FOV_WIDTH_DEG)
 FOV_HEIGHT_RAD = np.deg2rad(FOV_HEIGHT_DEG)
 FOCAL_LENGTH_PX_DISTANCE = 1545
 FOCAL_LENGTH_PX_BEARING = 1200
-CAMERA_HEIGHT_M = 0.015
+WALL_FOCAL_LENGTH_PX_DISTANCE = 1500
+CAMERA_HEIGHT_M = 0.103
 
 class Obstacle:
     '''Class representing a detected obstacle'''
@@ -131,6 +141,12 @@ MIN_AREA = 900
 SHELF_SIZE_THRESHOLD = 1000
 
 # --- Main processing functions ---
+# --- Global marker memory ---
+marker_memory = {
+    "row_markers": [],        # list of Obstacle objects
+    "picking_stations": [],   # list of Obstacle objects
+    "frames_since_seen": {}   # maps marker ID to frames since last seen
+}
 
 def analyse_shape(contour):
     """analyse shape characteristics of a contour"""
@@ -161,9 +177,14 @@ def detect_object_type(contour, colour_name, area, hsv):
     if shape is None:
         return None, None
     if colour_name == "Green":
-        return "Obstacle", "Rectangle"
-    if colour_name == "Blue":  # Blue shelves don't need specific type
-        return "Shelf", "Rectangle"
+        if shape['height'] / shape['width'] > HEIGHT_WIDTH_RATIO_THRESHOLD:
+            return TYPE_OBSTACLE_TALL, "rectangle"
+        else:
+            return TYPE_OBSTACLE_FLOOR, "rectangle"
+    elif colour_name == "Blue":  # Blue shelves don't need specific type
+        return TYPE_SHELF, "Rectangle"
+    elif colour_name == "Yellow":
+        return TYPE_YELLOW_STATION, "rectangle"
     elif colour_name == "Orange":
         # First check for tall objects (oil bottle)
         if shape['height'] / shape['width'] > HEIGHT_WIDTH_RATIO_THRESHOLD:
@@ -243,41 +264,67 @@ def process_frame(frame):
     centrex, centrey = frame_width // 2, frame_height // 2
     
     hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
-    hsv = cv2.GaussianBlur(hsv, (5, 5), 0)
+    hsv = cv2.GaussianBlur(hsv, (9, 9), 0)
     detected_obstacles = []
     trajectory = []
     
+    yellow_mask = cv2.inRange(hsv, YELLOW.lower, YELLOW.upper)
+    yellow_present = np.any(yellow_mask > 0)
+
+    if yellow_present:
+        # Set HSV min for wall to 200 if yellow is detected
+        WALL.lower[2] = 190
+    else:
+        pass
+        WALL.lower[2] = 175
+
     for colour in COLOURS:
         mask = cv2.inRange(hsv, colour.lower, colour.upper)
-        mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, KERNEL, iterations=1)
-        mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, KERNEL, iterations=1)
+        #mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, KERNEL, iterations=1)
+        #mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, KERNEL, iterations=1)
         
-        contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
 
-        # --- Special case: white = wall detection ---
-        if colour.name == "White":
-            ys, xs = np.where(mask > 0)
-            if len(ys) > 0:
-                transition_y = np.min(ys)  # first row of wall
-                wall_dist = wall_distance_from_transition(transition_y, frame_height)
-                if wall_dist is not None:
-                    detected_obstacles.append(
-                        Obstacle(
-                            type_name="wall",
-                            centre=(centrex, transition_y),
-                            area=0,
-                            bearing=0.0,
-                            distance=wall_dist,
-                            shape="line",
-                            colour_bgr=colour.colour_bgr,
-                            contour=None
-                        )
+        if colour.name == "Wall":
+        # Find contours of wall mask
+            contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+            for cnt in contours:
+                if cv2.contourArea(cnt) < 500:  # filter out noise
+                    continue
+
+                # Visual center of the wall contour
+                M = cv2.moments(cnt)
+                if M["m00"] != 0:
+                    centre_x = int(M["m10"] / M["m00"])
+                    centre_y = int(M["m01"] / M["m00"])
+                else:
+                    x, y, w, h = cv2.boundingRect(cnt)
+                    centre_x = x + w // 2
+                    centre_y = y + h // 2
+
+                # Bottommost pixel for distance calculation
+                bottom_y = cnt[:, :, 1].max()
+                wall_dist = wall_distance_from_transition(bottom_y, frame_height)
+
+                detected_obstacles.append(
+                    Obstacle(
+                        type_name="Wall",
+                        centre=(centre_x, centre_y),  # center for overlay
+                        area=cv2.contourArea(cnt),
+                        bearing=(0.0, 0.0),
+                        distance=wall_dist,
+                        shape="Line",
+                        colour_bgr=colour.colour_bgr,
+                        contour=cnt
                     )
-            continue  # skip normal contour loop for white
+                )
+            continue
+
         
         # --- Black grouping case ---
         if colour.name == "Black":
-            black_groups = detect_and_group_markers(hsv, mask, contours, WHITE, centrex, centrey)
+            black_groups = detect_and_group_markers(hsv, mask, contours, WALL, centrex, centrey)
             detected_obstacles.extend(black_groups)
             continue
         
@@ -337,8 +384,15 @@ def detect_and_group_markers(hsv, mask, input_contours, white_profile, centrex, 
             # Calculate circularity for type decision
             perimeter = cv2.arcLength(cnt, True)
             circularity = 4 * math.pi * area / (perimeter * perimeter) if perimeter > 0 else 0
+            x, y, w, h = cv2.boundingRect(cnt)
+            aspect_ratio = w / h if h > 0 else 0
+            if circularity > 0.85 and 0.8 < aspect_ratio < 1.2 and y > 0:
+                type_name = TYPE_ROW_MARKER
+            else:
+                type_name = TYPE_PICKING_STATION
 
-            type_name = TYPE_ROW_MARKER if circularity > CIRCLE_PARAM else TYPE_PICKING_STATION
+
+
 
             # Bounding rect for distance calculation
             x, y, w, h = cv2.boundingRect(cnt)
@@ -369,7 +423,6 @@ def detect_and_group_markers(hsv, mask, input_contours, white_profile, centrex, 
 
     # Step 3: group markers into rows using scaled distance
     row_contours, merged_mask = group_same_row_markers_distance(black_contours, hsv.shape)
-
 
     # Step 4: assign group distance and bearing
     for row in row_contours:
@@ -419,8 +472,12 @@ def detect_and_group_markers(hsv, mask, input_contours, white_profile, centrex, 
             )
         )
 
-    return detected_groups
+    # --- Discard picking stations if any row markers exist ---
+    row_marker_exists = any(group.type_name == TYPE_ROW_MARKER for group in detected_groups)
+    if row_marker_exists:
+        detected_groups = [group for group in detected_groups if group.type_name != TYPE_PICKING_STATION]
 
+    return detected_groups
 
 def group_same_row_markers_distance(black_contours, frame_shape):
     """
@@ -441,7 +498,7 @@ def group_same_row_markers_distance(black_contours, frame_shape):
         })
 
     avg_size = np.mean([info['size'] for info in contour_infos])
-    dist_thresh = avg_size * 2.5
+    dist_thresh = avg_size * 1.3
 
     parent = list(range(len(contour_infos)))
 
@@ -481,10 +538,10 @@ def group_same_row_markers_distance(black_contours, frame_shape):
 
 
 
-def has_white_border(hsv, cnt, white_profile, fraction_thresh=0.6):
+def has_white_border(hsv, cnt, white_profile, fraction_thresh=0.15):
     contour_mask = np.zeros(hsv.shape[:2], dtype=np.uint8)
     cv2.drawContours(contour_mask, [cnt], -1, 255, -1)
-    kernel = np.ones((5,5), np.uint8)
+    kernel = np.ones((9,9), np.uint8)
     dilated_mask = cv2.dilate(contour_mask, kernel, iterations=1)
     ring_mask = dilated_mask - contour_mask
     colours_around_contour = hsv[ring_mask == 255]
@@ -497,18 +554,15 @@ def has_white_border(hsv, cnt, white_profile, fraction_thresh=0.6):
 def wall_distance_from_transition(transition_y, img_height):
     """
     Estimate distance to the floor-wall intersection (ground contact point)
-    with a horizontally-mounted camera.
+    with a horizontally-mounted camera using the pinhole projection model.
     """
-    # Pixel offset from optical center
     center_y = img_height / 2
-    dy = transition_y - center_y  # positive if boundary is below horizon
+    dy = transition_y - center_y  # pixels below optical center
 
-    # Convert to angle using focal length in pixels
-    phi = np.arctan2(dy, FOCAL_LENGTH_PX_DISTANCE)
-
-    if phi <= 0:  # should be below horizon
+    if dy <= 0:
+        # Intersection above or at horizon → invalid geometry
         return None
 
-    # Distance = height / tan(angle down to intersection)
-    distance = CAMERA_HEIGHT_M / np.tan(phi)
+    # Pinhole model: Z = (H * f) / dy
+    distance = (CAMERA_HEIGHT_M * WALL_FOCAL_LENGTH_PX_DISTANCE) / dy
     return distance

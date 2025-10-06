@@ -8,7 +8,7 @@ from time import sleep, monotonic, time
 from camera.processing_module import process_frame, Obstacle
 from camera.camera_module import Camera
 import cv2
-from camera.RB import calcShelfMarkersRB, draw_overlay, calcPickingMarkersRB
+from camera.RB import calcShelfMarkersRB, draw_overlay, calcPickingMarkersRB, calcPackingStationRB
 
 ''' collection modules '''
 from collection import level_1, level_2, level_3, centre, open_grab, close_grab, initServos
@@ -62,15 +62,6 @@ def print_board_status():
   elif board.last_operate_status == board.STA_ERR_SOFT_VERSION:
     print("board status: unsupport board framware version")
 
-def rowIndex(TARGET_BAY):
-    TARGET_SHELF_INDEX = TARGET_BAY[0]
-    if TARGET_SHELF_INDEX > -1 and TARGET_SHELF_INDEX < 2:
-        TARGET_ROW_INDEX = 1
-    elif TARGET_SHELF_INDEX > 1 and TARGET_SHELF_INDEX < 4:
-        TARGET_ROW_INDEX = 2
-    elif TARGET_SHELF_INDEX > 3 and TARGET_SHELF_INDEX < 6:
-        TARGET_ROW_INDEX = 3
-    return TARGET_ROW_INDEX
 
 
 
@@ -131,7 +122,7 @@ if __name__ == "__main__":
             'plot_centre_reference': False   # Draw center reference lines
         }
 
-        robotMode = RobotMode.SEARCH_MARKER
+        robotMode = RobotMode.SEARCH_STATION
 
         while True:
             print('robotMode', robotMode)
@@ -152,6 +143,7 @@ if __name__ == "__main__":
 
             shelfMarkersRB = calcShelfMarkersRB(obstacles)
             pickingStationRB = calcPickingMarkersRB(obstacles)
+            psRB = calcPackingStationRB(obstacles)
             print('shelfMarkerRB is', shelfMarkersRB)
 
             TARGET_STATION_INDEX, TARGET_BAY, TARGET_BAY_HEIGHT = processOrder()
@@ -167,16 +159,16 @@ if __name__ == "__main__":
                 board.motor_stop(board.ALL)
             
             elif robotMode == RobotMode.SEARCH_STATION:
-                # TODO: receive yellow packing station information
-                packingStationRB = 0, paDistance = 0, paBearing = 0 # TODO: Change this once info is processed
-                if packingStationRB:
-                    if paDistance < RAMP_ARRIVE_DIST:
-                        aligned = steerToBearing(paBearing)
+                psRBd = psRB[0]
+                psRBb = psRB[1]
+                if psRB:
+                    if psRBd < RAMP_ARRIVE_DIST:
+                        aligned = steerToBearing(psRBb)
                         if aligned:
                             board.motor_stop(board.ALL)
                             robotMode = RobotMode.CHECK_ROW
                     else:
-                       drive_distance(board, paDistance - RAMP_ARRIVE_DIST, 100)
+                       drive_distance(board, psRBd - RAMP_ARRIVE_DIST, 100)
                 else:
                    turnSearch(50, board)
 
@@ -360,26 +352,6 @@ if __name__ == "__main__":
                     robotMode = RobotMode.SEARCH_STATION
                         
 
-                     
-                
-                     
-                
-
-            elif robotMode == RobotMode.SEARCH_MARKER:
-                TARGET_ROW_INDEX = rowIndex(TARGET_BAY)
-                close_grab()
-                #print('shelfMarker:', shelfMarkersRB)
-                if shelfMarkersRB[TARGET_ROW_INDEX]:
-                    rowmB = shelfMarkersRB[TARGET_ROW_INDEX][1]
-                    rowmD = shelfMarkersRB[TARGET_ROW_INDEX][0]
-                    aligned = steerToBearing(rowmB)
-                    if aligned:
-                        board.motor_stop(board.ALL)
-                        robotMode = RobotMode.DRIVE_TO_BAY
-                else:
-                  print("Not Found")
-                  board.motor_movement([board.M1], board.CW, 50)
-                  board.motor_movement([board.M2], board.CW, 50)
 
 
 

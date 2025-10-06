@@ -2,8 +2,8 @@
 from picamera2 import Picamera2
 
 # Pi Camera settings
-EXPOSURE = 9000
-ANALOGUE_GAIN = 1
+EXPOSURE = 10000
+ANALOGUE_GAIN = 1.5
 R_GAIN = 1.596
 B_GAIN = 2.464
 

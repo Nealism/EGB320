@@ -105,4 +105,9 @@ def calcObjectRB(obstacles, target):
 
     return objectRB
 
-    
+
+def calcPackingStationRB(obstacles):
+    for obstacle in obstacles:
+        if obstacle.type_name == 'Yellow Station':
+            psRB = (obstacle.distance, obstacle.bearing[0])
+    return psRB
